@@ -1,0 +1,10 @@
+{
+  "seed": 12345,
+  "scale": 1000,
+  "amp": 220,
+  "erosion": 1.5,
+  "terraces": 20,
+  "riverWidth": 1.2,
+  "peakSoft": 0.5,
+  "detail": 1
+}

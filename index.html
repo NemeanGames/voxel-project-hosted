@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voxel Project</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #000; color: #fff; font-family: sans-serif; }
+        #canvas-container { width: 100vw; height: 100vh; }
+        #ui { position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.5); padding: 10px; border-radius: 5px; }
+    </style>
+</head>
+<body>
+    <div id="ui">
+        <h1>Voxel Terrain</h1>
+        <p>Loading engine...</p>
+    </div>
+    <div id="canvas-container"></div>
+
+    <!-- Three.js for rendering -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    
+    <script>
+        // Mocking the environment for terrain.js
+        const CONFIG = {
+            seed: 12345,
+            scale: 1000,
+            amp: 220,
+            erosion: 1.5,
+            terraces: 20,
+            riverWidth: 1.2,
+            peakSoft: 0.5,
+            detail: 1
+        };
+
+        const PALETTE = {
+            WATER: 0x4444ff,
+            SAND: 0xd2b48c,
+            GRAVEL: 0x808080,
+            GRASS: 0x228b22,
+            SNOW: 0xffffff,
+            STRATA: [0x8b4513, 0xa0522d, 0xcd853f]
+        };
+
+        // Simple noise implementation if GEN is not provided
+        const GEN = {
+            noise: (x, y, z) => Math.sin(x) * Math.cos(z), // Placeholder
+            fbm: (x, y, z, octaves) => Math.sin(x * 0.5) * Math.cos(z * 0.5) // Placeholder
+        };
+    </script>
+
+    <!-- Load the project's terrain logic -->
+    <script src="terrain.js"></script>
+
+    <script>
+        // Initialize Three.js scene
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+        const geometry = new THREE.BoxGeometry(1, 1, 1);
+        
+        // Generate a small chunk of terrain
+        for (let x = -10; x < 10; x++) {
+            for (let z = -10; z < 10; z++) {
+                const info = getColumn(x, z);
+                const color = getColor(info, info.h, 0, x, z);
+                const material = new THREE.MeshBasicMaterial({ color: color });
+                const cube = new THREE.Mesh(geometry, material);
+                cube.position.set(x, info.h / 10, z); // Scale height for visibility
+                scene.add(cube);
+            }
+        }
+
+        camera.position.z = 30;
+        camera.position.y = 20;
+        camera.lookAt(0, 0, 0);
+
+        function animate() {
+            requestAnimationFrame(animate);
+            renderer.render(scene, camera);
+        }
+        animate();
+
+        document.querySelector('#ui p').innerText = "Terrain Generated!";
+    </script>
+</body>
+</html>

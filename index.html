@@ -3,26 +3,36 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Voxel Project</title>
+    <title>Voxel Terrain Viewer</title>
     <style>
-        body { margin: 0; overflow: hidden; background: #000; color: #fff; font-family: sans-serif; }
+        body { margin: 0; overflow: hidden; background: #000; color: #fff; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
         #canvas-container { width: 100vw; height: 100vh; }
-        #ui { position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.5); padding: 10px; border-radius: 5px; }
+        #ui { position: absolute; top: 20px; left: 20px; background: rgba(0,0,0,0.7); padding: 20px; border-radius: 8px; border: 1px solid #444; pointer-events: none; }
+        h1 { margin: 0 0 10px 0; font-size: 24px; color: #4caf50; }
+        p { margin: 5px 0; font-size: 14px; color: #ccc; }
+        .controls { margin-top: 15px; font-size: 12px; color: #888; }
     </style>
 </head>
 <body>
     <div id="ui">
         <h1>Voxel Terrain</h1>
-        <p>Loading engine...</p>
+        <p id="status">Initializing engine...</p>
+        <div class="controls">
+            Left Click: Rotate | Right Click: Pan | Scroll: Zoom
+        </div>
     </div>
     <div id="canvas-container"></div>
 
-    <!-- Three.js for rendering -->
+    <!-- Three.js and OrbitControls -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
     
+    <!-- Noise Library (Simplex) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/simplex-noise/2.4.0/simplex-noise.min.js"></script>
+
     <script>
-        // Mocking the environment for terrain.js
-        const CONFIG = {
+        // Global variables required by terrain.js
+        let CONFIG = {
             seed: 12345,
             scale: 1000,
             amp: 220,
@@ -34,18 +44,38 @@
         };
 
         const PALETTE = {
-            WATER: 0x4444ff,
-            SAND: 0xd2b48c,
-            GRAVEL: 0x808080,
-            GRASS: 0x228b22,
+            WATER: 0x3366ff,
+            SAND: 0xdfc08a,
+            GRAVEL: 0x888888,
+            GRASS: 0x3a7d32,
             SNOW: 0xffffff,
-            STRATA: [0x8b4513, 0xa0522d, 0xcd853f]
+            STRATA: [0x5d4037, 0x6d4c41, 0x795548, 0x8d6e63]
         };
 
-        // Simple noise implementation if GEN is not provided
+        // Load config from json if available
+        fetch('config.json')
+            .then(response => response.json())
+            .then(data => {
+                CONFIG = { ...CONFIG, ...data };
+                console.log("Config loaded:", CONFIG);
+            })
+            .catch(err => console.warn("Using default config:", err));
+
+        // Noise implementation for GEN
+        const simplex = new SimplexNoise(CONFIG.seed);
         const GEN = {
-            noise: (x, y, z) => Math.sin(x) * Math.cos(z), // Placeholder
-            fbm: (x, y, z, octaves) => Math.sin(x * 0.5) * Math.cos(z * 0.5) // Placeholder
+            noise: (x, y, z) => simplex.noise3D(x, y, z),
+            fbm: (x, y, z, octaves) => {
+                let v = 0;
+                let a = 0.5;
+                let f = 1.0;
+                for (let i = 0; i < octaves; i++) {
+                    v += a * simplex.noise3D(x * f, y * f, z * f);
+                    f *= 2.0;
+                    a *= 0.5;
+                }
+                return v;
+            }
         };
     </script>
 
@@ -55,36 +85,84 @@
     <script>
         // Initialize Three.js scene
         const scene = new THREE.Scene();
-        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-        const renderer = new THREE.WebGLRenderer();
+        scene.background = new THREE.Color(0x87ceeb); // Sky blue
+        
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
         document.getElementById('canvas-container').appendChild(renderer.domElement);
 
+        // Lights
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        scene.add(ambientLight);
+        const sunLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        sunLight.position.set(100, 200, 100);
+        scene.add(sunLight);
+
+        // Controls
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+
         const geometry = new THREE.BoxGeometry(1, 1, 1);
+        const CHUNK_SIZE = 32;
         
-        // Generate a small chunk of terrain
-        for (let x = -10; x < 10; x++) {
-            for (let z = -10; z < 10; z++) {
-                const info = getColumn(x, z);
-                const color = getColor(info, info.h, 0, x, z);
-                const material = new THREE.MeshBasicMaterial({ color: color });
-                const cube = new THREE.Mesh(geometry, material);
-                cube.position.set(x, info.h / 10, z); // Scale height for visibility
-                scene.add(cube);
+        document.getElementById('status').innerText = "Generating Terrain...";
+
+        // Simple voxel generation
+        function generateTerrain() {
+            const instancedMeshes = {};
+            
+            for (let x = -CHUNK_SIZE/2; x < CHUNK_SIZE/2; x++) {
+                for (let z = -CHUNK_SIZE/2; z < CHUNK_SIZE/2; z++) {
+                    const info = getColumn(x, z);
+                    const surfaceY = Math.floor(info.h / 5); // Scaled for better visualization
+                    
+                    // Generate blocks from a base level up to the surface
+                    for (let y = 0; y <= surfaceY; y++) {
+                        const color = getColor(info, y * 5, 0, x, z);
+                        
+                        if (!instancedMeshes[color]) {
+                            instancedMeshes[color] = [];
+                        }
+                        
+                        const matrix = new THREE.Matrix4();
+                        matrix.setPosition(x, y, z);
+                        instancedMeshes[color].push(matrix);
+                    }
+                }
             }
+
+            // Create instanced meshes for performance
+            for (const [colorStr, matrices] of Object.entries(instancedMeshes)) {
+                const color = parseInt(colorStr);
+                const mesh = new THREE.InstancedMesh(geometry, new THREE.MeshLambertMaterial({ color: color }), matrices.length);
+                for (let i = 0; i < matrices.length; i++) {
+                    mesh.setMatrixAt(i, matrices[i]);
+                }
+                scene.add(mesh);
+            }
+            
+            document.getElementById('status').innerText = "Terrain Ready!";
         }
 
-        camera.position.z = 30;
-        camera.position.y = 20;
-        camera.lookAt(0, 0, 0);
+        generateTerrain();
+
+        camera.position.set(40, 40, 40);
+        controls.update();
 
         function animate() {
             requestAnimationFrame(animate);
+            controls.update();
             renderer.render(scene, camera);
         }
         animate();
 
-        document.querySelector('#ui p').innerText = "Terrain Generated!";
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
     </script>
 </body>
 </html>
